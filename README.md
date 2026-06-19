@@ -24,10 +24,9 @@ toggle in the top-left brings it back.
   blend, and an optional OCR pass that floats copies of any on-screen text/numbers.
 - **PixelCrash glitch** — segments people out of the captured video and renders them
   as ASCII characters (body-part labels, or your own text). Optional webcam-body overlay.
-- **Karaoke (embed)** — plays a YouTube video in-app (IFrame player), auto-synced
-  lyrics from [lrclib.net](https://lrclib.net), CSS color/blur filters.
-- **Karaoke (local)** — plays a downloaded file: auto-synced lyrics, face-multiply
-  copies (incl. webcam), volume-reactive lyric size.
+- **Karaoke (local)** — plays a downloaded file: auto-synced lyrics from
+  [lrclib.net](https://lrclib.net), face-multiply copies (incl. webcam),
+  volume-reactive lyric size.
 - **Karaoke (capture)** — tab-capture variant with multiply + volume; manual sync.
 - **Focal points** — the stream melts into soft colour blobs; labelled boxes track
   the image's focal points with a dashed, curvy web.
@@ -53,8 +52,7 @@ The karaoke helper uses `yt-dlp` and `ffmpeg` locally.
 
 ## Notes / browser limits
 
-- Effects that read pixels (Melting, PixelCrash, focal, capture-karaoke) need a
-  same-origin or capturable source. A cross-origin YouTube **embed** can't be read,
-  so Karaoke (embed) only gets auto-sync + CSS filters; the local/capture modes get
-  the pixel effects.
+- Effects that read pixels (Melting, PixelCrash, focal, karaoke) need a same-origin
+  or capturable source. Local karaoke uses a downloaded file (same-origin), so pixel
+  effects + audio analysis + exact lyric sync all work.
 - Camera/screen capture and audio require a user gesture and permission.

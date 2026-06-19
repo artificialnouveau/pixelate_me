@@ -816,22 +816,6 @@ const MODES = {
       onCleanup(() => { pcRunning = false; try { pcSeg && pcSeg.close(); } catch (_) {} pcSeg = null; stopStream(bgEl); stopWebcam(); });
     }
   },
-  'Karaoke (embed)': {
-    knobs: ['kasize', 'ythue', 'ytsat', 'ytcon', 'ytblur', 'ytinv', 'fps'],
-    hint: "Best sync. Paste the YouTube URL, click Run: video plays in-app, lyrics lock to it. Manipulation here is CSS filters only (Hue/Saturate/Contrast/Blur/Invert); pixel effects can't read an embedded video.",
-    async start() {
-      const url = document.getElementById('kasong').value.trim();
-      const id = ytId(url);
-      if (!id) { say('Paste a YouTube URL in the box, then Run.', true); return; }
-      say('Loading player...');
-      await ensureYT();
-      await makePlayer(id);
-      fetchLyrics(url);                 // resolve title -> lrclib (async)
-      kaEmbedRunning = true;
-      embedLoop();
-      onCleanup(() => { kaEmbedRunning = false; try { ytPlayer && ytPlayer.pauseVideo(); } catch (_) {} ytEl.style.filter = ''; octx.clearRect(0, 0, ov.width, ov.height); });
-    }
-  },
   'Karaoke (local)': {
     knobs: ['kacopies', 'kaspread', 'kasize', 'kavol', 'kadrift', 'kawebcam', 'fps'],
     hint: "Plays karaoke.mp4: auto-sync lyrics, face-multiply, volume-reactive size. Set Webcam=1 (grants camera) to multiply YOUR face over it instead of the video's.",
