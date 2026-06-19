@@ -46,18 +46,16 @@ song shows up in the **Library** dropdown. Video files (`*.mp4`) are gitignored.
 
 ## Headless (no GPU / no browser)
 
-The two pure-CPU algorithms (the PixelCrash luminance->glyph ASCII mapping and the
-focal-point chroma saliency) don't need a GPU. `headless.py` runs them in plain Python:
+The PixelCrash luminance->glyph ASCII mapping is pure CPU math and doesn't need a
+GPU or browser. `headless.py` applies it to a video file offline:
 
 ```bash
-python3 headless.py                 # animate a procedural cat scene in the terminal (zero deps)
-python3 headless.py frame.ppm       # write one frame as a PPM image (zero deps)
-python3 headless.py in.mp4 out.mp4  # real video -> ASCII video (needs ffmpeg + numpy + PIL)
+python3 headless.py in.mp4 out.mp4   # video -> ASCII video
 ```
 
-The no-argument and `.ppm` modes are pure stdlib, so they run in the barest sandbox,
-no pip, no PIL, no ffmpeg. The melt/segmentation/OCR modes stay browser-only (they
-need MediaPipe + a GPU canvas), but the pixel math is portable.
+Needs `ffmpeg`, `numpy`, and `PIL` (plus `opencv-python` for fast resize). The
+melt/segmentation/OCR modes stay browser-only (they need MediaPipe + a GPU canvas),
+but the ASCII pixel math is portable.
 
 ## Dependencies
 

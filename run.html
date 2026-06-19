@@ -76,6 +76,12 @@
 <script src="https://unpkg.com/hydra-synth"></script>
 
 <script>
+// easter egg for whoever opens the console: the interesting part was never the
+// browser plumbing - it's the CPU math. `python3 headless.py in.mp4 out.mp4`
+// runs the ASCII mapping with no browser. the scan that scans without a scanner.
+console.log('%cpixelate_me', 'color:#ffe24d;font:bold 22px monospace');
+console.log('%cthe scan that scans without a scanner. try headless.py for the no-browser version.', 'color:#79c0ff');
+
 const hint   = document.getElementById('hint');
 const panel  = document.getElementById('panel');
 const cEl    = document.getElementById('c');
