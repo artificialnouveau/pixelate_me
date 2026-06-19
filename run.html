@@ -9,7 +9,6 @@
   #c  { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 2; }
   #bg { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; object-fit: fill; z-index: 1; display: none; background: #fff; }
   #px { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 2; display: none; }
-  #ytplayer { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 1; display: none; border: 0; }
   #ov { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 5; pointer-events: none; }
   #panel {
     position: fixed; top: 12px; left: 12px; z-index: 10;
@@ -50,7 +49,6 @@
 <canvas id="c"></canvas>                                  <!-- Hydra output (face mode) -->
 <video  id="bg" autoplay muted playsinline></video>       <!-- capture source (focal + pixelcrash) -->
 <canvas id="px"></canvas>                                 <!-- ASCII output (pixelcrash mode) -->
-<div id="ytplayer"></div>                                 <!-- embedded YouTube player (karaoke embed) -->
 <video id="lv" playsinline style="display:none"></video>  <!-- local file source (karaoke local) -->
 <video id="cam" muted playsinline style="display:none"></video> <!-- webcam (karaoke local face copies) -->
 <canvas id="maskcanvas" style="display:none"></canvas>    <!-- ellipse mask -> Hydra s3 -->
@@ -98,8 +96,6 @@ const PARAMS = {
   pcsize: 14, pcbright: 1.1, pcback: 1, pcvary: 0.6, pccalm: 0.7, pcperson: 0.4, pcwebcam: 0,
   // karaoke
   kacopies: 6, kaspread: 0.5, kasize: 60, kavol: 1.2, kadrift: 0, kawebcam: 0,
-  // embed CSS filters (only thing possible on a cross-origin iframe)
-  ythue: 0, ytsat: 1, ytcon: 1, ytblur: 0, ytinv: 0,
   // shared
   fps: 30,
 };
@@ -135,11 +131,6 @@ const KNOBS = [
   { key: 'kavol',      label: 'Vol size',   min: 0,    max: 3,    step: 0.1,  fmt: v => v.toFixed(1) },
   { key: 'kadrift',    label: 'Drift',      min: 0,    max: 1,    step: 0.05, fmt: v => v.toFixed(2) },
   { key: 'kawebcam',   label: 'Webcam',     min: 0,    max: 1,    step: 1,    fmt: v => v.toFixed(0) },
-  { key: 'ythue',      label: 'Hue',        min: 0,    max: 360,  step: 5,    fmt: v => v.toFixed(0) },
-  { key: 'ytsat',      label: 'Saturate',   min: 0,    max: 3,    step: 0.05, fmt: v => v.toFixed(2) },
-  { key: 'ytcon',      label: 'Contrast',   min: 0.5,  max: 3,    step: 0.05, fmt: v => v.toFixed(2) },
-  { key: 'ytblur',     label: 'Blur',       min: 0,    max: 20,   step: 1,    fmt: v => v.toFixed(0) },
-  { key: 'ytinv',      label: 'Invert',     min: 0,    max: 1,    step: 1,    fmt: v => v.toFixed(0) },
   { key: 'fps',        label: 'FPS',        min: 4,    max: 60,   step: 1,    fmt: v => v.toFixed(0) },
 ];
 
@@ -653,43 +644,6 @@ function drawKaraokeLyrics(ctx, W, H, idx, baseSize) {
   }
   ctx.textAlign = 'left'; ctx.textBaseline = 'top';
 }
-// ---- embed karaoke: YouTube IFrame player (auto-synced lyrics, no pixel FX) ----
-const ytEl = document.getElementById('ytplayer');
-let ytPlayer = null, ytApiPromise = null, kaEmbedRunning = false;
-function ytId(url) { const m = (url || '').match(/(?:v=|youtu\.be\/|\/embed\/|\/shorts\/)([\w-]{11})/); return m ? m[1] : ''; }
-function ensureYT() {
-  if (window.YT && window.YT.Player) return Promise.resolve();
-  if (ytApiPromise) return ytApiPromise;
-  ytApiPromise = new Promise(res => { window.onYouTubeIframeAPIReady = () => res(); const s = document.createElement('script'); s.src = 'https://www.youtube.com/iframe_api'; document.head.appendChild(s); });
-  return ytApiPromise;
-}
-function makePlayer(videoId) {
-  return new Promise(res => {
-    if (ytPlayer) { ytPlayer.loadVideoById(videoId); res(); return; }
-    ytPlayer = new YT.Player('ytplayer', {
-      width: '100%', height: '100%', videoId,
-      playerVars: { autoplay: 1, controls: 1, rel: 0, modestbranding: 1, playsinline: 1 },
-      events: { onReady: () => { try { ytPlayer.playVideo(); } catch (_) {} res(); } },
-    });
-  });
-}
-function embedLoop() {
-  if (!kaEmbedRunning) return;
-  if (dueForUpdate()) {
-    const W = window.innerWidth, H = window.innerHeight;
-    if (ov.width !== W) ov.width = W; if (ov.height !== H) ov.height = H;
-    ytEl.style.filter = `hue-rotate(${PARAMS.ythue}deg) saturate(${PARAMS.ytsat}) contrast(${PARAMS.ytcon}) blur(${PARAMS.ytblur}px) invert(${PARAMS.ytinv})`;
-    octx.clearRect(0, 0, W, H);
-    if (ytPlayer && ytPlayer.getCurrentTime && kaLrc.length) {
-      let t = 0; try { t = ytPlayer.getCurrentTime(); } catch (_) {}
-      const idx = kaCurrentIndex(t);
-      if (idx >= 0) drawKaraokeLyrics(octx, W, H, idx, PARAMS.kasize);
-    }
-    if (ytPlayer && ytPlayer.getDuration) { try { kaSyncTimeline(ytPlayer.getCurrentTime(), ytPlayer.getDuration()); } catch (_) {} }
-  }
-  requestAnimationFrame(embedLoop);
-}
-
 function kaLoop() {
   if (!kaRunning) return;
   if (dueForUpdate() && kaVid && kaVid.videoWidth) {
@@ -925,13 +879,11 @@ function setVisibility(name) {
   const focal = name === 'Focal points';
   const pc = name === 'PixelCrash glitch';
   const kac = name === 'Karaoke (capture)';
-  const kae = name === 'Karaoke (embed)';
   const kal = name === 'Karaoke (local)';
   bgEl.style.display = (focal || pc || kac) ? 'block' : 'none';  // capture source
   bgEl.style.filter = focal ? '' : 'none';                       // only focal melts the bg
   pxEl.style.display = (pc || kac || kal) ? 'block' : 'none';    // 2D canvas: ascii / capture / local karaoke
-  ytEl.style.display = kae ? 'block' : 'none';                    // embedded player
-  cEl.style.display = (pc || kac || kae || kal) ? 'none' : 'block';
+  cEl.style.display = (pc || kac || kal) ? 'none' : 'block';
   cEl.style.mixBlendMode = focal ? 'overlay' : 'normal';
   cEl.style.opacity = focal ? PARAMS.osc : 1;
 }
@@ -958,25 +910,21 @@ document.getElementById('kafetch').addEventListener('click', () => fetchLyrics(d
 document.getElementById('kastart').addEventListener('click', () => {
   const m = modeSel.value;
   if (m === 'Karaoke (local)') { try { lvEl.currentTime = 0; lvEl.play(); } catch (_) {} kaOnset = null; kaStatus('Restarted from the top.'); }
-  else if (m === 'Karaoke (embed)') { try { ytPlayer && ytPlayer.seekTo(0, true); ytPlayer && ytPlayer.playVideo(); } catch (_) {} kaStatus('Restarted from the top.'); }
   else { kaStart = performance.now(); kaStatus(kaLrc.length ? 'Lyric clock started.' : 'Started, but no lyrics loaded yet.'); }   // capture: re-zero the clock
 });
 
-// pause/play + scrubbable timeline (local + embed)
+// pause/play + scrubbable timeline (local karaoke)
 const kaPauseBtn = document.getElementById('kapause'), kaTime = document.getElementById('katime'), kaTimeLbl = document.getElementById('katimelbl');
 let kaScrubbing = false;
 function fmtTime(s) { s = Math.max(0, s || 0); return Math.floor(s / 60) + ':' + Math.floor(s % 60).toString().padStart(2, '0'); }
 function kaIsLocal() { return modeSel.value === 'Karaoke (local)'; }
-function kaIsEmbed() { return modeSel.value === 'Karaoke (embed)'; }
 kaPauseBtn.addEventListener('click', () => {
   if (kaIsLocal()) { if (lvEl.paused) { lvEl.play(); kaPauseBtn.textContent = 'Pause'; } else { lvEl.pause(); kaPauseBtn.textContent = 'Play'; } }
-  else if (kaIsEmbed() && ytPlayer) { try { if (ytPlayer.getPlayerState() === 1) { ytPlayer.pauseVideo(); kaPauseBtn.textContent = 'Play'; } else { ytPlayer.playVideo(); kaPauseBtn.textContent = 'Pause'; } } catch (_) {} }
 });
 kaTime.addEventListener('input', () => {
   kaScrubbing = true;
   const frac = kaTime.value / 1000;
   if (kaIsLocal() && lvEl.duration) { lvEl.currentTime = frac * lvEl.duration; kaTimeLbl.textContent = fmtTime(lvEl.currentTime); }
-  else if (kaIsEmbed() && ytPlayer && ytPlayer.getDuration) { try { const d = ytPlayer.getDuration(); ytPlayer.seekTo(frac * d, true); kaTimeLbl.textContent = fmtTime(frac * d); } catch (_) {} }
 });
 kaTime.addEventListener('change', () => { kaScrubbing = false; });
 // keep the timeline in sync with playback (called from the karaoke loops)
