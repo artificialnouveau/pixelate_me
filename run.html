@@ -88,6 +88,7 @@
     <button id="run">Run</button>
     <button id="hide">Hide</button>
     <button id="info" title="What is this? Per-mode help">&#9432;</button>
+    <button id="full" title="Toggle fullscreen (F)">&#9974;</button>
   </div>
   <div id="randrow"><input type="checkbox" id="random"><label for="random">Random changes</label></div>
   <div id="textrow"><input id="pctext" type="text" value="" placeholder="custom text, or leave empty to label body parts"></div>
@@ -1030,7 +1031,7 @@ function buildInfo() {
     html += '<li><span class="k">' + k.label + '</span> &mdash; ' + (DESC[key] || '') + '</li>';
   }
   html += '</ul>';
-  html += '<p style="opacity:.7"><b>Source</b> selects Screen tab vs Webcam. <b>Run</b> starts the mode; <b>Hide</b> clears the panel (Esc toggles it). <b>Random changes</b> auto-nudges the sliders for a generative feel.</p>';
+  html += '<p style="opacity:.7"><b>Source</b> selects Screen tab vs Webcam. <b>Run</b> starts the mode; <b>Hide</b> clears the panel (Esc toggles it); <b>&#9974;</b> goes fullscreen (or press F). <b>Random changes</b> auto-nudges the sliders for a generative feel.</p>';
   infobody.innerHTML = html;
 }
 function setInfo(v) { if (v) buildInfo(); infobox.classList.toggle('hidden', !v); }
@@ -1171,7 +1172,29 @@ const toggle = document.getElementById('toggle');
 function setPanel(v) { panel.classList.toggle('hidden', !v); toggle.style.display = v ? 'none' : 'block'; }
 document.getElementById('hide').addEventListener('click', () => setPanel(false));
 toggle.addEventListener('click', () => setPanel(true));
-window.addEventListener('keydown', e => { if (e.key === 'Escape') setPanel(panel.classList.contains('hidden')); });
+
+// fullscreen: put the whole page (canvas + overlays) into the browser's fullscreen.
+const fullBtn = document.getElementById('full');
+function isFullscreen() { return !!(document.fullscreenElement || document.webkitFullscreenElement); }
+function toggleFullscreen() {
+  if (!isFullscreen()) {
+    const el = document.documentElement, req = el.requestFullscreen || el.webkitRequestFullscreen;
+    if (req) Promise.resolve(req.call(el)).catch(e => say('Fullscreen blocked: ' + e.message, true));
+  } else {
+    const exit = document.exitFullscreen || document.webkitExitFullscreen;
+    if (exit) exit.call(document);
+  }
+}
+fullBtn.addEventListener('click', toggleFullscreen);
+function syncFullBtn() { fullBtn.innerHTML = isFullscreen() ? '&#10005;' : '&#9974;'; fullBtn.title = (isFullscreen() ? 'Exit' : 'Toggle') + ' fullscreen (F)'; }
+document.addEventListener('fullscreenchange', syncFullBtn);
+document.addEventListener('webkitfullscreenchange', syncFullBtn);
+
+window.addEventListener('keydown', e => {
+  const typing = /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName);
+  if (e.key === 'Escape') setPanel(panel.classList.contains('hidden'));
+  else if ((e.key === 'f' || e.key === 'F') && !typing && !e.metaKey && !e.ctrlKey && !e.altKey) { e.preventDefault(); toggleFullscreen(); }
+});
 
 syncControls();
 </script>
