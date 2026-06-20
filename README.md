@@ -1,4 +1,4 @@
-# pixelate_me
+# vidom
 
 A single-file, browser-based live-visuals studio built on [Hydra](https://hydra.ojack.xyz)
 plus a few in-browser ML models. Capture a browser tab or window, use your webcam,
@@ -6,7 +6,7 @@ or play a local video, and run it through one of several real-time effect modes.
 Nothing is uploaded; all processing happens locally in the browser.
 
 It also runs on the web at
-[artificialnouveau.com/smalltools/pixelate_me](https://www.artificialnouveau.com/smalltools/pixelate_me/).
+[artificialnouveau.com/smalltools/vidom](https://www.artificialnouveau.com/smalltools/vidom/).
 
 Everything is in `run.html`. No build step.
 
