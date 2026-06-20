@@ -58,6 +58,7 @@
 <div id="panel">
   <div id="bar">
     <select id="mode"></select>
+    <select id="source" title="input source"><option value="screen">Screen tab</option><option value="webcam">Webcam</option></select>
     <button id="run">Run</button>
     <button id="hide">Hide</button>
   </div>
@@ -296,9 +297,16 @@ const sc = document.createElement('canvas'); sc.width = GW; sc.height = GH;
 const sctx = sc.getContext('2d', { willReadFrequently: true });
 let focalRunning = false, focalFrame = 0, tracked = [];
 
+function sourceIsWebcam() { return document.getElementById('source').value === 'webcam'; }
 async function startStreamCapture() {
-  say('Pick the Kick tab in the share dialog...');
-  const stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false });
+  let stream;
+  if (sourceIsWebcam()) {
+    say('Allow the camera...');
+    stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+  } else {
+    say('Pick the tab/screen in the share dialog...');
+    stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false });
+  }
   bgEl.srcObject = stream;
   await new Promise(res => { if (bgEl.readyState >= 1) res(); else bgEl.onloadedmetadata = () => res(); });
   await bgEl.play();
@@ -762,9 +770,9 @@ const MODES = {
     knobs: ['facebox', 'reveal', 'hold', 'faceglitch', 'pixelate', 'facewebcam', 'webmix', 'ocr', 'brightness', 'contrast', 'fps'],
     hint: "Heavy glitch; faces melt as DISTORTED ellipses. Webcam=1 blends your camera. Text copy=1 OCRs the stream and floats copies of any text/numbers (set before Run).",
     async start() {
-      await s0.initScreen();
+      if (sourceIsWebcam()) s0.initCam(); else await s0.initScreen();   // webcam or screen as the source
       if (PARAMS.facewebcam) { try { s1.initCam(); } catch (_) {} }
-      // base = kick stream, optionally blended with the webcam
+      // base = source stream, optionally blended with the webcam
       const base = () => PARAMS.facewebcam ? src(s0).blend(src(s1), () => PARAMS.webmix) : src(s0);
       // heavy glitch background
       base().color(1.04, 0, -1.1).rotate(0.30, 0.1)
