@@ -44,19 +44,6 @@ Local karaoke plays downloaded files. Add songs with the helper (needs `yt-dlp` 
 It downloads the video next to `run.html` and updates `karaoke-videos.json`, so the
 song shows up in the **Library** dropdown. Video files (`*.mp4`) are gitignored.
 
-## Headless (no GPU / no browser)
-
-The PixelCrash luminance->glyph ASCII mapping is pure CPU math and doesn't need a
-GPU or browser. `headless.py` applies it to a video file offline:
-
-```bash
-python3 headless.py in.mp4 out.mp4   # video -> ASCII video
-```
-
-Needs `ffmpeg`, `numpy`, and `PIL` (plus `opencv-python` for fast resize). The
-melt/segmentation/OCR modes stay browser-only (they need MediaPipe + a GPU canvas),
-but the ASCII pixel math is portable.
-
 ## Dependencies
 
 Loaded from CDNs at runtime (no install): Hydra (`hydra-synth`),
