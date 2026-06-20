@@ -120,7 +120,7 @@ const PARAMS = {
   // face reveal
   facebox: 1.3, reveal: 0.30, hold: 0.7, faceglitch: 0.3, pixelate: 40, brightness: 0, contrast: 1, facewebcam: 0, webmix: 0.5, ocr: 0, facebright: 1.6, tiles: 0,
   // focal points
-  blur: 26, saturate: 2.0, points: 16, box: 1.0, web: 2, smooth: 0.08, ink: 1, osc: 0.5,
+  blur: 26, saturate: 2.0, points: 16, box: 1.0, web: 2, smooth: 0.08, ink: 1, osc: 0.5, bgdrift: 0.3,
   // pixelcrash (ASCII over segmented people)
   pcsize: 14, pcbright: 1.1, pcback: 1, pcvary: 0.6, pccalm: 0.7, pcperson: 0.4, pcwebcam: 0,
   // karaoke
@@ -149,6 +149,7 @@ const KNOBS = [
   { key: 'smooth',     label: 'Drift',      min: 0.02, max: 0.4,  step: 0.01, fmt: v => v.toFixed(2) },
   { key: 'ink',        label: 'Ink',        min: 0,    max: 1,    step: 0.05, fmt: v => v.toFixed(2) },
   { key: 'osc',        label: 'Osc',        min: 0,    max: 1,    step: 0.05, fmt: v => v.toFixed(2) },
+  { key: 'bgdrift',    label: 'Blob drift', min: 0,    max: 1,    step: 0.05, fmt: v => v.toFixed(2) },
   { key: 'pcsize',     label: 'Char size',  min: 6,    max: 28,   step: 1,    fmt: v => v.toFixed(0) },
   { key: 'pcbright',   label: 'Bright',     min: 0.5,  max: 2,    step: 0.05, fmt: v => v.toFixed(2) },
   { key: 'pcback',     label: 'Backing',    min: 0,    max: 1,    step: 0.05, fmt: v => v.toFixed(2) },
@@ -516,6 +517,9 @@ function focalLoop() {
   if (!focalRunning) return;
   if (dueForUpdate()) {
   bgEl.style.filter = `blur(${PARAMS.blur}px) saturate(${PARAMS.saturate}) contrast(1.35)`;
+  // slow drift of the whole melted-blob field (scaled up so no edges show)
+  { const t = performance.now() / 1000, amp = PARAMS.bgdrift * 45, sc = 1 + PARAMS.bgdrift * 0.18;
+    bgEl.style.transform = `scale(${sc}) translate(${Math.sin(t * 0.13) * amp}px, ${Math.cos(t * 0.1) * amp}px)`; }
   cEl.style.opacity = PARAMS.osc;   // live osc-layer blend amount
   if (ov.width !== window.innerWidth) ov.width = window.innerWidth;
   if (ov.height !== window.innerHeight) ov.height = window.innerHeight;
@@ -906,15 +910,15 @@ const MODES = {
     }
   },
   'Focal points': {
-    knobs: ['blur', 'saturate', 'points', 'box', 'smooth', 'ink', 'osc', 'fps'],
-    hint: "Stream melts into color; labeled boxes track focal points. Osc blends a Hydra pattern on top.",
+    knobs: ['blur', 'saturate', 'points', 'box', 'smooth', 'ink', 'osc', 'bgdrift', 'fps'],
+    hint: "Stream melts into color; labeled boxes track focal points. Blob drift gives the melted field a slow life of its own. Osc blends a Hydra pattern on top.",
     async start() {
       await startStreamCapture();
       // osc pattern rendered by Hydra, blended over the melted stream (Osc slider = opacity)
       osc(5, -0.126, 0.514).rotate(0, 0.1).pixelate(40, 40).out(o0); render(o0);
       focalRunning = true; focalFrame = 0; tracked = [];
       focalLoop();
-      onCleanup(() => { focalRunning = false; stopStream(bgEl); });
+      onCleanup(() => { focalRunning = false; bgEl.style.transform = ''; stopStream(bgEl); });
     }
   },
 };
