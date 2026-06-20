@@ -108,7 +108,7 @@ async function refreshCameras() {
     if (cur && videoInputs.some(d => d.deviceId === cur)) cameraSel.value = cur;
   } catch (_) {}
 }
-function camConstraint() { const id = cameraSel.value; return id ? { deviceId: { ideal: id } } : true; }   // for getUserMedia
+function camConstraint() { const id = cameraSel.value; return id ? { deviceId: { exact: id } } : true; }   // exact = force the chosen camera
 function selectedCameraIndex() { const i = videoInputs.findIndex(d => d.deviceId === cameraSel.value); return i < 0 ? 0 : i; }   // for Hydra initCam
 refreshCameras();
 if (navigator.mediaDevices) navigator.mediaDevices.addEventListener('devicechange', refreshCameras);
@@ -818,8 +818,8 @@ function kaLoop() {
 // ---------------------------------------------------------------------------
 const MODES = {
   'Melting': {
-    knobs: ['facebox', 'reveal', 'hold', 'faceglitch', 'pixelate', 'facewebcam', 'webmix', 'ocr', 'brightness', 'contrast', 'fps'],
-    hint: "Heavy glitch; faces melt as DISTORTED ellipses. Webcam=1 blends your camera. Text copy=1 OCRs the stream and floats copies of any text/numbers (set before Run).",
+    knobs: ['facebox', 'reveal', 'hold', 'faceglitch', 'pixelate', 'ocr', 'brightness', 'contrast', 'fps'],
+    hint: "Heavy glitch; faces melt as distorted ellipses. Text copy=1 OCRs the stream and floats copies of any text/numbers (set before Run). Use the Source/camera pickers for webcam input.",
     async start() {
       if (sourceIsWebcam()) s0.initCam(selectedCameraIndex()); else await s0.initScreen();   // webcam or screen as the source
       if (PARAMS.facewebcam) { try { s1.initCam(); } catch (_) {} }
