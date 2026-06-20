@@ -83,7 +83,7 @@ window.secret = function () {
   const neon = 'https://www.youtube.com/watch?v=YTWHFJWjAjU';   // lyrics: neon.en.srt
   const cyber = 'https://www.youtube.com/watch?v=DVprerMi5Dg';  // lyrics: neon2.en.srt
   console.log('%ca two-part quest, for whoever found this:', 'color:#ffe24d;font:bold 15px monospace');
-  console.log('%cCLIP ONE (already neon):\n  ./add-song.sh "' + neon + '"\n  reload -> Karaoke (local) -> pick it -> Run.  burn the yellow subtitles (neon.en.srt).\n  you have been, gently, in colour, rickrolled.\n\nCLIP TWO (cyberstress):\n  ./add-song.sh "' + cyber + '"\n  do the pixel thing: PixelCrash glitch on it, AND burn the yellow subtitles (neon2.en.srt).\n  leave cyber stress behind.', 'color:#79c0ff;font:13px monospace');
+  console.log('%cCLIP ONE (already neon):\n  ./add-song.sh "' + neon + '"\n  reload -> Karaoke (local) -> pick it -> Run.  the yellow subtitles come from its SRT.\n  you have been, gently, in colour, rickrolled.\n\nCLIP TWO (cyberstress):\n  ./add-song.sh "' + cyber + '"\n  do the pixel thing: PixelCrash glitch on it, AND burn the yellow subtitles (its SRT).\n  leave cyber stress behind.', 'color:#79c0ff;font:13px monospace');
   return 'never gonna give you up';
 };
 
@@ -513,7 +513,7 @@ function drawFocalOverlay() {
 // ---------------------------------------------------------------------------
 let kaRunning = false, kaLrc = [], kaStart = 0, kaFaceDet = null, kaFaces = [], kaLastTs = -1, kaUpd = 0, kaRegion = null, kaCopyState = [];
 let kaAudioCtx = null, kaAnalyser = null, kaTimeData = null, kaVolSmooth = 0;
-let kaVid = null, kaLocalMode = false, kaMediaSrc = null, kaLocalAnalyser = null, kaLocalData = null, kaOnset = null;
+let kaVid = null, kaLocalMode = false, kaMediaSrc = null, kaLocalAnalyser = null, kaLocalData = null, kaOnset = null, kaSrtMode = false;
 const lvEl = document.getElementById('lv');
 
 // optional webcam: detect faces in it and use those crops as the drifting copies
@@ -563,6 +563,22 @@ function parseLRC(str) {
     while ((m = re.exec(line))) times.push(parseInt(m[1]) * 60 + parseFloat(m[2]));
     const text = line.replace(/\[[^\]]*\]/g, '').trim();
     for (const t of times) out.push({ t, text });
+  }
+  return out.sort((a, b) => a.t - b.t);
+}
+
+// parse an .srt subtitle file into the same {t, text} lyric structure (t = cue start, seconds)
+function parseSRT(txt) {
+  const out = [];
+  for (const blk of txt.replace(/\r/g, '').trim().split(/\n\n+/)) {
+    const lines = blk.split('\n');
+    const ti = lines.findIndex(l => l.includes('-->'));
+    if (ti < 0) continue;
+    const m = lines[ti].match(/(\d\d):(\d\d):(\d\d)[,.](\d+)/);
+    if (!m) continue;
+    const t = (+m[1]) * 3600 + (+m[2]) * 60 + (+m[3]) + (+m[4]) / 1000;
+    const text = lines.slice(ti + 1).join(' ').replace(/<[^>]+>/g, '').replace(/\[[^\]]*\]/g, '').trim();
+    if (text) out.push({ t, text });
   }
   return out.sort((a, b) => a.t - b.t);
 }
@@ -718,8 +734,12 @@ function kaLoop() {
     let elapsed = null;
     if (kaLocalMode) {
       if (kaLrc.length) {
-        if (kaOnset === null && kaVid.currentTime > 0.1 && kaVolume() > 0.05) kaOnset = kaVid.currentTime;
-        elapsed = (kaOnset !== null) ? (kaVid.currentTime - kaOnset + kaLrc[0].t) : -1;
+        if (kaSrtMode) {
+          elapsed = kaVid.currentTime;                 // SRT cues are timed to the video
+        } else {
+          if (kaOnset === null && kaVid.currentTime > 0.1 && kaVolume() > 0.05) kaOnset = kaVid.currentTime;
+          elapsed = (kaOnset !== null) ? (kaVid.currentTime - kaOnset + kaLrc[0].t) : -1;
+        }
       }
     } else if (kaLrc.length && kaStart) elapsed = (performance.now() - kaStart) / 1000;
     if (elapsed != null) {
@@ -789,9 +809,19 @@ const MODES = {
       if (PARAMS.kawebcam) { try { await ensureWebcam(); } catch (e) { say('Webcam blocked: ' + e.message, true); } }
       const _opt = kalib.selectedOptions && kalib.selectedOptions[0];
       const _file = (_opt && _opt.value) ? _opt.value : 'karaoke.mp4';
+      const _srt = _opt && _opt.dataset.srt;
       try { await startKaraokeLocal(_file); } catch (e) { say('Error: ' + e.message, true); return; }
-      const url = (_opt && _opt.dataset.url) ? _opt.dataset.url : document.getElementById('kasong').value.trim();
-      if (url) fetchLyrics(url);   // lyrics from the library entry (or the box URL)
+      // lyrics: use the video's own SRT subtitles directly (timed to the video);
+      // fall back to lrclib only if there is no SRT.
+      if (_srt) {
+        kaSrtMode = true;
+        try { kaLrc = parseSRT(await (await fetch(_srt)).text()); kaStatus(`${kaLrc.length} subtitle lines from ${_srt}`); }
+        catch (e) { kaStatus('SRT load failed: ' + e.message); }
+      } else {
+        kaSrtMode = false;
+        const url = (_opt && _opt.dataset.url) ? _opt.dataset.url : document.getElementById('kasong').value.trim();
+        if (url) fetchLyrics(url);
+      }
       say('Loading face model...');
       kaFaceDet = await loadFaceDetector();
       kaFaces = []; kaLastTs = -1; kaUpd = 0; kaRegion = null; kaCopyState = [];
@@ -952,7 +982,7 @@ async function loadLibrary() {
     const lib = await (await fetch('karaoke-videos.json?_=' + Date.now())).json();
     const cur = kalib.value;
     kalib.innerHTML = '';
-    for (const e of lib) { const o = document.createElement('option'); o.value = e.file; o.dataset.url = e.url || ''; o.textContent = e.title || e.file; kalib.appendChild(o); }
+    for (const e of lib) { const o = document.createElement('option'); o.value = e.file; o.dataset.url = e.url || ''; o.dataset.srt = e.srt || ''; o.textContent = e.title || e.file; kalib.appendChild(o); }
     if (lib.length) { kalib.value = cur || lib[0].file; const o = kalib.selectedOptions[0]; if (o && o.dataset.url && !kasongEl.value) kasongEl.value = o.dataset.url; }
   } catch (_) { /* no library yet */ }
 }
