@@ -145,7 +145,7 @@ if (navigator.mediaDevices) navigator.mediaDevices.addEventListener('devicechang
 // ---------------------------------------------------------------------------
 const PARAMS = {
   // face reveal
-  facebox: 1.3, reveal: 0.30, hold: 0.7, faceglitch: 0.3, pixelate: 40, brightness: 0, contrast: 1, facewebcam: 0, webmix: 0.5, ocr: 0, facebright: 1.6, tiles: 0,
+  facebox: 1.3, reveal: 0.30, hold: 0.7, faceglitch: 0.3, pixelate: 40, brightness: 0, contrast: 1, facewebcam: 0, webmix: 0.5, ocr: 0, facebright: 1.6, tiles: 0, colorcycle: 0,
   // focal points
   blur: 26, saturate: 2.0, points: 16, box: 1.0, web: 2, smooth: 0.08, ink: 1, osc: 0.5, bgdrift: 0.3,
   // pixelcrash (ASCII over segmented people)
@@ -168,6 +168,7 @@ const KNOBS = [
   { key: 'ocr',        label: 'Text copy',  min: 0,    max: 1,    step: 1,    fmt: v => v.toFixed(0) },
   { key: 'facebright', label: 'Det light',  min: 1,    max: 3,    step: 0.1,  fmt: v => v.toFixed(1) },
   { key: 'tiles',      label: 'Tiles',      min: 0,    max: 1,    step: 1,    fmt: v => v.toFixed(0) },
+  { key: 'colorcycle', label: 'Color cycle',min: 0,    max: 1,    step: 0.05, fmt: v => v.toFixed(2) },
   { key: 'blur',       label: 'Blur',       min: 0,    max: 80,   step: 1,    fmt: v => v.toFixed(0) },
   { key: 'saturate',   label: 'Saturate',   min: 1,    max: 4,    step: 0.05, fmt: v => v.toFixed(2) },
   { key: 'points',     label: 'Points',     min: 3,    max: 16,   step: 1,    fmt: v => v.toFixed(0) },
@@ -278,6 +279,10 @@ function drawOCR(W, H) {
   }
 }
 
+// slow complementary-colour rotation for Melting (optional; 0 = frozen colours).
+// advanced once per frame in the loop, in real time so the rate is refresh-independent.
+let meltColorPhase = 0, meltLastPhaseTs = 0;
+
 async function startFaceDetection() {
   say('Waiting for tab capture (pick the tab/window)...');
   const video = await waitForCaptureVideo(s0);
@@ -329,6 +334,7 @@ async function startFaceDetection() {
   function loop() {
     if (!running) return;
     if (hydra) hydra.synth.fps = PARAMS.fps >= 60 ? null : PARAMS.fps;   // cap Hydra's render too
+    { const t = performance.now(); if (meltLastPhaseTs) meltColorPhase += (t - meltLastPhaseTs) / 1000 * PARAMS.colorcycle * 0.09; meltLastPhaseTs = t; }  // slow hue drift
     if (dueForUpdate() && video.readyState >= 2 && video.videoWidth) {
       if (mc.width !== video.videoWidth) mc.width = video.videoWidth;
       if (mc.height !== video.videoHeight) mc.height = video.videoHeight;
@@ -849,21 +855,23 @@ function kaLoop() {
 // ---------------------------------------------------------------------------
 const MODES = {
   'Melting': {
-    knobs: ['facebox', 'reveal', 'hold', 'faceglitch', 'pixelate', 'facebright', 'tiles', 'ocr', 'brightness', 'contrast', 'fps'],
-    hint: "Heavy glitch; faces melt as distorted ellipses. Det light brightens the detector's view (dim rooms); Tiles=1 finds smaller/farther faces (a bit heavier). Text copy=1 floats detected text.",
+    knobs: ['facebox', 'reveal', 'hold', 'faceglitch', 'pixelate', 'facebright', 'tiles', 'ocr', 'brightness', 'contrast', 'colorcycle', 'fps'],
+    hint: "Heavy glitch; faces melt as distorted ellipses. Det light brightens the detector's view (dim rooms); Tiles=1 finds smaller/farther faces (a bit heavier). Text copy=1 floats detected text. Color cycle slowly rotates the complementary palette.",
     async start() {
+      meltColorPhase = 0; meltLastPhaseTs = 0;   // restart the hue rotation from the base palette
       if (sourceIsWebcam()) s0.initCam(selectedCameraIndex()); else await s0.initScreen();   // webcam or screen as the source
       if (PARAMS.facewebcam) { try { s1.initCam(); } catch (_) {} }
       // base = source stream, optionally blended with the webcam
       const base = () => PARAMS.facewebcam ? src(s0).blend(src(s1), () => PARAMS.webmix) : src(s0);
-      // heavy glitch background
-      base().color(1.04, 0, -1.1).rotate(0.30, 0.1)
+      // heavy glitch background. hue() slowly rotates the complementary colours when
+      // Color cycle > 0 (hue(0) is a no-op, so it leaves the fixed palette untouched).
+      base().color(1.04, 0, -1.1).hue(() => meltColorPhase).rotate(0.30, 0.1)
         .pixelate(() => PARAMS.pixelate, () => PARAMS.pixelate)
         .modulate(noise(2.5), () => 1.5 * Math.sin(0.08 * time))
         .out(o1);
       // face layer: SAME melting warp as the background blobs (so the face melts/distorts
       // too), keeping its colour. Face glitch adds extra warp on top.
-      const faceLayer = base().color(1.04, 0, -1.1)
+      const faceLayer = base().color(1.04, 0, -1.1).hue(() => meltColorPhase)
         .modulate(noise(2.5), () => 1.5 * Math.sin(0.08 * time))
         .modulate(noise(2, 0.3), () => PARAMS.faceglitch * 0.06)
         .pixelate(() => 340 - PARAMS.faceglitch * 230, () => 340 - PARAMS.faceglitch * 230);
@@ -993,6 +1001,7 @@ const DESC = {
   ocr: "1 = read on-screen text and float drifting copies of it.",
   facebright: "Brightens the detector's view only, to catch faces in dim rooms.",
   tiles: "1 = scan the frame in four tiles to find smaller / farther faces (slower).",
+  colorcycle: "Slowly rotates the complementary colour palette over time (0 = off, fixed colours).",
   blur: "How much the stream melts into soft colour.",
   saturate: "Colour intensity of the melted field.",
   points: "How many focal points (boxes) to track.",
