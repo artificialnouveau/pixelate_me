@@ -120,7 +120,7 @@ const PARAMS = {
   // face reveal
   facebox: 1.3, reveal: 0.30, hold: 0.7, faceglitch: 0.3, pixelate: 40, brightness: 0, contrast: 1, facewebcam: 0, webmix: 0.5, ocr: 0,
   // focal points
-  blur: 26, saturate: 2.0, points: 16, box: 1.0, web: 2, smooth: 0.08, ink: 1, osc: 0.5, unblur: 0.5,
+  blur: 26, saturate: 2.0, points: 16, box: 1.0, web: 2, smooth: 0.08, ink: 1, osc: 0.5,
   // pixelcrash (ASCII over segmented people)
   pcsize: 14, pcbright: 1.1, pcback: 1, pcvary: 0.6, pccalm: 0.7, pcperson: 0.4, pcwebcam: 0,
   // karaoke
@@ -147,7 +147,6 @@ const KNOBS = [
   { key: 'smooth',     label: 'Drift',      min: 0.02, max: 0.4,  step: 0.01, fmt: v => v.toFixed(2) },
   { key: 'ink',        label: 'Ink',        min: 0,    max: 1,    step: 0.05, fmt: v => v.toFixed(2) },
   { key: 'osc',        label: 'Osc',        min: 0,    max: 1,    step: 0.05, fmt: v => v.toFixed(2) },
-  { key: 'unblur',     label: 'Unblur',     min: 0,    max: 1,    step: 0.05, fmt: v => v.toFixed(2) },
   { key: 'pcsize',     label: 'Char size',  min: 6,    max: 28,   step: 1,    fmt: v => v.toFixed(0) },
   { key: 'pcbright',   label: 'Bright',     min: 0.5,  max: 2,    step: 0.05, fmt: v => v.toFixed(2) },
   { key: 'pcback',     label: 'Backing',    min: 0,    max: 1,    step: 0.05, fmt: v => v.toFixed(2) },
@@ -314,35 +313,6 @@ const GW = 96, GH = 54;
 const sc = document.createElement('canvas'); sc.width = GW; sc.height = GH;
 const sctx = sc.getContext('2d', { willReadFrequently: true });
 let focalRunning = false, focalFrame = 0, tracked = [];
-// focal unblur: occasionally pull a sharp face out of the blur, fade in then out
-let focalFaceDet = null, focalFaces = [], focalFaceTs = -1, unblurActive = null, unblurNext = 0;
-const unblurCanvas = document.createElement('canvas');
-function renderUnblur(now) {
-  if (PARAMS.unblur <= 0 || !bgEl.videoWidth) { unblurActive = null; return; }
-  if (!unblurActive && now >= unblurNext && focalFaces.length) {
-    const f = focalFaces[(Math.random() * focalFaces.length) | 0].boundingBox;
-    unblurActive = { b: f, t0: now, dur: 4000 + Math.random() * 3000 };
-  }
-  if (!unblurActive) return;
-  const p = (now - unblurActive.t0) / unblurActive.dur;
-  if (p >= 1) { unblurActive = null; unblurNext = now + (2000 + Math.random() * 7000) * (1.2 - PARAMS.unblur); return; }
-  const alpha = Math.sin(p * Math.PI);                       // slow in -> hold -> slow out
-  const vw = bgEl.videoWidth, vh = bgEl.videoHeight, W = ov.width, H = ov.height;
-  const b = unblurActive.b, grow = 1.5;
-  const cw = b.width * grow, ch = b.height * grow;
-  const cx = b.originX + b.width / 2, cy = b.originY + b.height / 2;
-  const sx = cx - cw / 2, sy = cy - ch / 2;                  // source crop (video px, SHARP - drawImage ignores CSS blur)
-  const dw = cw / vw * W, dh = ch / vh * H, dx = cx / vw * W - dw / 2, dy = cy / vh * H - dh / 2;
-  const uc = unblurCanvas, uctx = uc.getContext('2d');
-  uc.width = Math.max(2, Math.round(dw)); uc.height = Math.max(2, Math.round(dh));
-  uctx.clearRect(0, 0, uc.width, uc.height);
-  uctx.drawImage(bgEl, sx, sy, cw, ch, 0, 0, uc.width, uc.height);
-  const g = uctx.createRadialGradient(uc.width/2, uc.height/2, Math.min(uc.width, uc.height) * 0.25, uc.width/2, uc.height/2, Math.min(uc.width, uc.height) * 0.5);
-  g.addColorStop(0, 'rgba(0,0,0,1)'); g.addColorStop(1, 'rgba(0,0,0,0)');
-  uctx.globalCompositeOperation = 'destination-in'; uctx.fillStyle = g; uctx.fillRect(0, 0, uc.width, uc.height);
-  uctx.globalCompositeOperation = 'source-over';
-  octx.globalAlpha = alpha; octx.drawImage(uc, dx, dy); octx.globalAlpha = 1;
-}
 
 function sourceIsWebcam() { return document.getElementById('source').value === 'webcam'; }
 async function startStreamCapture() {
@@ -527,9 +497,7 @@ function focalLoop() {
     }
     const k = 0.12;   // box -> target smoothing is fixed; Drift now controls idle wander (see draw)
     for (const t of tracked) { t.x += (t.tx-t.x)*k; t.y += (t.ty-t.y)*k; t.w += (t.tw-t.w)*k; t.h += (t.th-t.h)*k; }
-    if (focalFaceDet && focalFrame % 6 === 0) { let ts = performance.now(); if (ts <= focalFaceTs) ts = focalFaceTs + 1; focalFaceTs = ts; try { focalFaces = focalFaceDet.detectForVideo(bgEl, ts).detections || []; } catch (_) {} }
     drawFocalOverlay();
-    renderUnblur(performance.now());   // slow sharp-face reveal over the blur
   }
   focalFrame++;
   }
@@ -906,18 +874,15 @@ const MODES = {
     }
   },
   'Focal points': {
-    knobs: ['blur', 'saturate', 'points', 'box', 'smooth', 'ink', 'osc', 'unblur', 'fps'],
-    hint: "Stream melts into color; labeled boxes track focal points. Unblur: faces occasionally swim into sharp focus then back into the blur.",
+    knobs: ['blur', 'saturate', 'points', 'box', 'smooth', 'ink', 'osc', 'fps'],
+    hint: "Stream melts into color; labeled boxes track focal points. Osc blends a Hydra pattern on top.",
     async start() {
       await startStreamCapture();
       // osc pattern rendered by Hydra, blended over the melted stream (Osc slider = opacity)
       osc(5, -0.126, 0.514).rotate(0, 0.1).pixelate(40, 40).out(o0); render(o0);
       focalRunning = true; focalFrame = 0; tracked = [];
-      focalFaces = []; unblurActive = null; unblurNext = performance.now() + 2500;
-      say('Loading face model...');
-      try { focalFaceDet = await loadFaceDetector(); } catch (_) {}
       focalLoop();
-      onCleanup(() => { focalRunning = false; try { focalFaceDet && focalFaceDet.close(); } catch (_) {} focalFaceDet = null; stopStream(bgEl); });
+      onCleanup(() => { focalRunning = false; stopStream(bgEl); });
     }
   },
 };
