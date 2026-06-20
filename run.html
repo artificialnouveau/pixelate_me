@@ -118,7 +118,7 @@ if (navigator.mediaDevices) navigator.mediaDevices.addEventListener('devicechang
 // ---------------------------------------------------------------------------
 const PARAMS = {
   // face reveal
-  facebox: 1.3, reveal: 0.30, hold: 0.7, faceglitch: 0.3, pixelate: 40, brightness: 0, contrast: 1, facewebcam: 0, webmix: 0.5, ocr: 0,
+  facebox: 1.3, reveal: 0.30, hold: 0.7, faceglitch: 0.3, pixelate: 40, brightness: 0, contrast: 1, facewebcam: 0, webmix: 0.5, ocr: 0, facebright: 1.6, tiles: 0,
   // focal points
   blur: 26, saturate: 2.0, points: 16, box: 1.0, web: 2, smooth: 0.08, ink: 1, osc: 0.5,
   // pixelcrash (ASCII over segmented people)
@@ -139,6 +139,8 @@ const KNOBS = [
   { key: 'facewebcam', label: 'Webcam',     min: 0,    max: 1,    step: 1,    fmt: v => v.toFixed(0) },
   { key: 'webmix',     label: 'Web mix',    min: 0,    max: 1,    step: 0.05, fmt: v => v.toFixed(2) },
   { key: 'ocr',        label: 'Text copy',  min: 0,    max: 1,    step: 1,    fmt: v => v.toFixed(0) },
+  { key: 'facebright', label: 'Det light',  min: 1,    max: 3,    step: 0.1,  fmt: v => v.toFixed(1) },
+  { key: 'tiles',      label: 'Tiles',      min: 0,    max: 1,    step: 1,    fmt: v => v.toFixed(0) },
   { key: 'blur',       label: 'Blur',       min: 0,    max: 80,   step: 1,    fmt: v => v.toFixed(0) },
   { key: 'saturate',   label: 'Saturate',   min: 1,    max: 4,    step: 0.05, fmt: v => v.toFixed(2) },
   { key: 'points',     label: 'Points',     min: 3,    max: 16,   step: 1,    fmt: v => v.toFixed(0) },
@@ -265,14 +267,44 @@ async function startFaceDetection() {
   function regen(n) { connections = []; for (let i = 0; i < n; i++) for (let j = i + 1; j < n; j++) if (Math.random() < 0.55) connections.push([i, j, Math.random() * 2 - 1]); }
 
   let rafId = 0, lastTs = -1, running = true;
+  // detection input gets a brightness boost (helps dim rooms); optional 2x2 tiling
+  // (Tiles=1) re-detects per quadrant so smaller/farther faces register.
+  const detCanvas = document.createElement('canvas'), dctx = detCanvas.getContext('2d', { willReadFrequently: true });
+  const tileCanvas = document.createElement('canvas'), tctx = tileCanvas.getContext('2d', { willReadFrequently: true });
+  const nextTs = () => { let t = performance.now(); if (t <= lastTs) t = lastTs + 1; lastTs = t; return t; };
+  function detectFaces(vw, vh) {
+    if (detCanvas.width !== vw) detCanvas.width = vw;
+    if (detCanvas.height !== vh) detCanvas.height = vh;
+    dctx.filter = `brightness(${PARAMS.facebright}) contrast(1.15)`;   // boost the detector's view only
+    dctx.drawImage(video, 0, 0, vw, vh);
+    dctx.filter = 'none';
+    if (!PARAMS.tiles) { try { return detector.detectForVideo(detCanvas, nextTs()).detections || []; } catch (_) { return []; } }
+    const all = [], ovf = 0.14;
+    for (let r = 0; r < 2; r++) for (let c = 0; c < 2; c++) {
+      const tw = vw / 2, th = vh / 2;
+      const tx = Math.max(0, c * tw - tw * ovf), ty = Math.max(0, r * th - th * ovf);
+      const cw = Math.min(tw * (1 + 2 * ovf), vw - tx), ch = Math.min(th * (1 + 2 * ovf), vh - ty);
+      if (tileCanvas.width !== Math.round(cw)) tileCanvas.width = Math.round(cw);
+      if (tileCanvas.height !== Math.round(ch)) tileCanvas.height = Math.round(ch);
+      tctx.drawImage(detCanvas, tx, ty, cw, ch, 0, 0, tileCanvas.width, tileCanvas.height);
+      let dd = []; try { dd = detector.detectForVideo(tileCanvas, nextTs()).detections || []; } catch (_) {}
+      for (const d of dd) { const b = d.boundingBox; all.push({ boundingBox: { originX: tx + b.originX, originY: ty + b.originY, width: b.width, height: b.height } }); }
+    }
+    const out = [];   // merge faces found in overlapping tiles by centre proximity
+    for (const d of all) {
+      const b = d.boundingBox, cx = b.originX + b.width / 2, cy = b.originY + b.height / 2;
+      if (out.some(o => { const ob = o.boundingBox; return Math.hypot(cx - (ob.originX + ob.width / 2), cy - (ob.originY + ob.height / 2)) < Math.max(b.width, ob.width) * 0.5; })) continue;
+      out.push(d);
+    }
+    return out;
+  }
   function loop() {
     if (!running) return;
     if (hydra) hydra.synth.fps = PARAMS.fps >= 60 ? null : PARAMS.fps;   // cap Hydra's render too
     if (dueForUpdate() && video.readyState >= 2 && video.videoWidth) {
       if (mc.width !== video.videoWidth) mc.width = video.videoWidth;
       if (mc.height !== video.videoHeight) mc.height = video.videoHeight;
-      let ts = performance.now(); if (ts <= lastTs) ts = lastTs + 1; lastTs = ts;
-      let dets = []; try { dets = detector.detectForVideo(video, ts).detections || []; } catch (_) {}
+      const dets = detectFaces(video.videoWidth, video.videoHeight);
       const fade = Math.max(0.012, 0.30 * (1 - PARAMS.hold));
       ctx.filter = 'none'; ctx.globalAlpha = 1; ctx.fillStyle = 'rgba(0,0,0,' + fade + ')'; ctx.fillRect(0, 0, mc.width, mc.height);
       ctx.filter = 'blur(' + Math.round(mc.width * PARAMS.reveal * 0.05) + 'px)'; ctx.fillStyle = '#fff'; ctx.globalAlpha = 0.35;
@@ -786,8 +818,8 @@ function kaLoop() {
 // ---------------------------------------------------------------------------
 const MODES = {
   'Melting': {
-    knobs: ['facebox', 'reveal', 'hold', 'faceglitch', 'pixelate', 'ocr', 'brightness', 'contrast', 'fps'],
-    hint: "Heavy glitch; faces melt as distorted ellipses. Text copy=1 OCRs the stream and floats copies of any text/numbers (set before Run). Use the Source/camera pickers for webcam input.",
+    knobs: ['facebox', 'reveal', 'hold', 'faceglitch', 'pixelate', 'facebright', 'tiles', 'ocr', 'brightness', 'contrast', 'fps'],
+    hint: "Heavy glitch; faces melt as distorted ellipses. Det light brightens the detector's view (dim rooms); Tiles=1 finds smaller/farther faces (a bit heavier). Text copy=1 floats detected text.",
     async start() {
       if (sourceIsWebcam()) s0.initCam(selectedCameraIndex()); else await s0.initScreen();   // webcam or screen as the source
       if (PARAMS.facewebcam) { try { s1.initCam(); } catch (_) {} }
