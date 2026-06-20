@@ -78,7 +78,14 @@
 <script>
 // easter egg for whoever opens the console.
 console.log('%cpixelate_me', 'color:#ffe24d;font:bold 22px monospace');
-console.log('%cthe scan that scans without a scanner.', 'color:#79c0ff');
+console.log('%cthe scan that scans without a scanner.   ( type  secret()  and press enter )', 'color:#79c0ff');
+window.secret = function () {
+  const neon = 'https://www.youtube.com/watch?v=YTWHFJWjAjU';   // lyrics: neon.en.srt
+  const cyber = 'https://www.youtube.com/watch?v=DVprerMi5Dg';  // lyrics: neon2.en.srt
+  console.log('%ca two-part quest, for whoever found this:', 'color:#ffe24d;font:bold 15px monospace');
+  console.log('%cCLIP ONE (already neon):\n  ./add-song.sh "' + neon + '"\n  reload -> Karaoke (local) -> pick it -> Run.  burn the yellow subtitles (neon.en.srt).\n  you have been, gently, in colour, rickrolled.\n\nCLIP TWO (cyberstress):\n  ./add-song.sh "' + cyber + '"\n  do the pixel thing: PixelCrash glitch on it, AND burn the yellow subtitles (neon2.en.srt).\n  leave cyber stress behind.', 'color:#79c0ff;font:13px monospace');
+  return 'never gonna give you up';
+};
 
 const hint   = document.getElementById('hint');
 const panel  = document.getElementById('panel');
