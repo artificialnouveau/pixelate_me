@@ -59,6 +59,7 @@
   <div id="bar">
     <select id="mode"></select>
     <select id="source" title="input source"><option value="screen">Screen tab</option><option value="webcam">Webcam</option></select>
+    <select id="camera" title="which camera"></select>
     <button id="run">Run</button>
     <button id="hide">Hide</button>
   </div>
@@ -95,6 +96,23 @@ const ov     = document.getElementById('ov');
 const octx   = ov.getContext('2d');
 function say(m, err) { hint.textContent = m; hint.classList.toggle('err', !!err); }
 
+// ---- camera picker: list video inputs so you can choose the Logitech etc. ----
+const cameraSel = document.getElementById('camera');
+let videoInputs = [];
+async function refreshCameras() {
+  try {
+    videoInputs = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === 'videoinput');
+    const cur = cameraSel.value;
+    cameraSel.innerHTML = '';
+    videoInputs.forEach((d, i) => { const o = document.createElement('option'); o.value = d.deviceId; o.textContent = d.label || ('Camera ' + (i + 1)); cameraSel.appendChild(o); });
+    if (cur && videoInputs.some(d => d.deviceId === cur)) cameraSel.value = cur;
+  } catch (_) {}
+}
+function camConstraint() { const id = cameraSel.value; return id ? { deviceId: { ideal: id } } : true; }   // for getUserMedia
+function selectedCameraIndex() { const i = videoInputs.findIndex(d => d.deviceId === cameraSel.value); return i < 0 ? 0 : i; }   // for Hydra initCam
+refreshCameras();
+if (navigator.mediaDevices) navigator.mediaDevices.addEventListener('devicechange', refreshCameras);
+
 // ---------------------------------------------------------------------------
 // Params for BOTH modes (no overlapping keys). Each mode uses a subset.
 // ---------------------------------------------------------------------------
@@ -102,7 +120,7 @@ const PARAMS = {
   // face reveal
   facebox: 1.3, reveal: 0.30, hold: 0.7, faceglitch: 0.3, pixelate: 40, brightness: 0, contrast: 1, facewebcam: 0, webmix: 0.5, ocr: 0,
   // focal points
-  blur: 26, saturate: 2.0, points: 16, box: 1.0, web: 2, smooth: 0.08, ink: 1, osc: 0.5,
+  blur: 26, saturate: 2.0, points: 16, box: 1.0, web: 2, smooth: 0.08, ink: 1, osc: 0.5, unblur: 0.5,
   // pixelcrash (ASCII over segmented people)
   pcsize: 14, pcbright: 1.1, pcback: 1, pcvary: 0.6, pccalm: 0.7, pcperson: 0.4, pcwebcam: 0,
   // karaoke
@@ -129,6 +147,7 @@ const KNOBS = [
   { key: 'smooth',     label: 'Drift',      min: 0.02, max: 0.4,  step: 0.01, fmt: v => v.toFixed(2) },
   { key: 'ink',        label: 'Ink',        min: 0,    max: 1,    step: 0.05, fmt: v => v.toFixed(2) },
   { key: 'osc',        label: 'Osc',        min: 0,    max: 1,    step: 0.05, fmt: v => v.toFixed(2) },
+  { key: 'unblur',     label: 'Unblur',     min: 0,    max: 1,    step: 0.05, fmt: v => v.toFixed(2) },
   { key: 'pcsize',     label: 'Char size',  min: 6,    max: 28,   step: 1,    fmt: v => v.toFixed(0) },
   { key: 'pcbright',   label: 'Bright',     min: 0.5,  max: 2,    step: 0.05, fmt: v => v.toFixed(2) },
   { key: 'pcback',     label: 'Backing',    min: 0,    max: 1,    step: 0.05, fmt: v => v.toFixed(2) },
@@ -239,6 +258,7 @@ async function startFaceDetection() {
   const detector = await vision.FaceDetector.createFromOptions(fileset, {
     baseOptions: { modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/face_detector/blaze_face_short_range/float16/1/blaze_face_short_range.tflite', delegate: 'GPU' },
     runningMode: 'VIDEO',
+    minDetectionConfidence: 0.3,   // catch smaller / farther / fainter faces
   });
   const mc = document.getElementById('maskcanvas'); const ctx = mc.getContext('2d');
   s3.init({ src: mc, dynamic: true });
@@ -278,8 +298,6 @@ async function startFaceDetection() {
           octx.beginPath(); octx.moveTo(x1, y1); octx.quadraticCurveTo(mx + (-dy/len)*bow*len*0.22, my + (dx/len)*bow*len*0.22, x2, y2); octx.stroke();
         }
       } else connections = [];
-      octx.lineWidth = 1.5; octx.strokeStyle = 'rgba(255,255,255,0.85)';
-      for (const b of boxes) octx.strokeRect(b.originX*sx, b.originY*sy, b.width*sx, b.height*sy);
       drawOCR(ov.width, ov.height);   // drifting copies of any detected text/numbers
       connFrame++;
     }
@@ -296,13 +314,43 @@ const GW = 96, GH = 54;
 const sc = document.createElement('canvas'); sc.width = GW; sc.height = GH;
 const sctx = sc.getContext('2d', { willReadFrequently: true });
 let focalRunning = false, focalFrame = 0, tracked = [];
+// focal unblur: occasionally pull a sharp face out of the blur, fade in then out
+let focalFaceDet = null, focalFaces = [], focalFaceTs = -1, unblurActive = null, unblurNext = 0;
+const unblurCanvas = document.createElement('canvas');
+function renderUnblur(now) {
+  if (PARAMS.unblur <= 0 || !bgEl.videoWidth) { unblurActive = null; return; }
+  if (!unblurActive && now >= unblurNext && focalFaces.length) {
+    const f = focalFaces[(Math.random() * focalFaces.length) | 0].boundingBox;
+    unblurActive = { b: f, t0: now, dur: 4000 + Math.random() * 3000 };
+  }
+  if (!unblurActive) return;
+  const p = (now - unblurActive.t0) / unblurActive.dur;
+  if (p >= 1) { unblurActive = null; unblurNext = now + (2000 + Math.random() * 7000) * (1.2 - PARAMS.unblur); return; }
+  const alpha = Math.sin(p * Math.PI);                       // slow in -> hold -> slow out
+  const vw = bgEl.videoWidth, vh = bgEl.videoHeight, W = ov.width, H = ov.height;
+  const b = unblurActive.b, grow = 1.5;
+  const cw = b.width * grow, ch = b.height * grow;
+  const cx = b.originX + b.width / 2, cy = b.originY + b.height / 2;
+  const sx = cx - cw / 2, sy = cy - ch / 2;                  // source crop (video px, SHARP - drawImage ignores CSS blur)
+  const dw = cw / vw * W, dh = ch / vh * H, dx = cx / vw * W - dw / 2, dy = cy / vh * H - dh / 2;
+  const uc = unblurCanvas, uctx = uc.getContext('2d');
+  uc.width = Math.max(2, Math.round(dw)); uc.height = Math.max(2, Math.round(dh));
+  uctx.clearRect(0, 0, uc.width, uc.height);
+  uctx.drawImage(bgEl, sx, sy, cw, ch, 0, 0, uc.width, uc.height);
+  const g = uctx.createRadialGradient(uc.width/2, uc.height/2, Math.min(uc.width, uc.height) * 0.25, uc.width/2, uc.height/2, Math.min(uc.width, uc.height) * 0.5);
+  g.addColorStop(0, 'rgba(0,0,0,1)'); g.addColorStop(1, 'rgba(0,0,0,0)');
+  uctx.globalCompositeOperation = 'destination-in'; uctx.fillStyle = g; uctx.fillRect(0, 0, uc.width, uc.height);
+  uctx.globalCompositeOperation = 'source-over';
+  octx.globalAlpha = alpha; octx.drawImage(uc, dx, dy); octx.globalAlpha = 1;
+}
 
 function sourceIsWebcam() { return document.getElementById('source').value === 'webcam'; }
 async function startStreamCapture() {
   let stream;
   if (sourceIsWebcam()) {
     say('Allow the camera...');
-    stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+    stream = await navigator.mediaDevices.getUserMedia({ video: camConstraint(), audio: false });
+    refreshCameras();   // labels become available after permission
   } else {
     say('Pick the tab/screen in the share dialog...');
     stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false });
@@ -479,7 +527,9 @@ function focalLoop() {
     }
     const k = 0.12;   // box -> target smoothing is fixed; Drift now controls idle wander (see draw)
     for (const t of tracked) { t.x += (t.tx-t.x)*k; t.y += (t.ty-t.y)*k; t.w += (t.tw-t.w)*k; t.h += (t.th-t.h)*k; }
+    if (focalFaceDet && focalFrame % 6 === 0) { let ts = performance.now(); if (ts <= focalFaceTs) ts = focalFaceTs + 1; focalFaceTs = ts; try { focalFaces = focalFaceDet.detectForVideo(bgEl, ts).detections || []; } catch (_) {} }
     drawFocalOverlay();
+    renderUnblur(performance.now());   // slow sharp-face reveal over the blur
   }
   focalFrame++;
   }
@@ -528,8 +578,8 @@ const camEl = document.getElementById('cam');
 let camStarted = false, camFaces = [];
 async function ensureWebcam() {
   if (camStarted) return;
-  const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
-  camEl.srcObject = stream; await camEl.play(); camStarted = true;
+  const stream = await navigator.mediaDevices.getUserMedia({ video: camConstraint(), audio: false });
+  camEl.srcObject = stream; await camEl.play(); camStarted = true; refreshCameras();
 }
 function stopWebcam() { try { if (camEl.srcObject) { camEl.srcObject.getTracks().forEach(t => t.stop()); camEl.srcObject = null; } } catch (_) {} camStarted = false; camFaces = []; }
 
@@ -560,6 +610,7 @@ async function loadFaceDetector() {
   return vision.FaceDetector.createFromOptions(fileset, {
     baseOptions: { modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/face_detector/blaze_face_short_range/float16/1/blaze_face_short_range.tflite', delegate: 'GPU' },
     runningMode: 'VIDEO',
+    minDetectionConfidence: 0.3,   // catch smaller / farther / fainter faces
   });
 }
 
@@ -770,7 +821,7 @@ const MODES = {
     knobs: ['facebox', 'reveal', 'hold', 'faceglitch', 'pixelate', 'facewebcam', 'webmix', 'ocr', 'brightness', 'contrast', 'fps'],
     hint: "Heavy glitch; faces melt as DISTORTED ellipses. Webcam=1 blends your camera. Text copy=1 OCRs the stream and floats copies of any text/numbers (set before Run).",
     async start() {
-      if (sourceIsWebcam()) s0.initCam(); else await s0.initScreen();   // webcam or screen as the source
+      if (sourceIsWebcam()) s0.initCam(selectedCameraIndex()); else await s0.initScreen();   // webcam or screen as the source
       if (PARAMS.facewebcam) { try { s1.initCam(); } catch (_) {} }
       // base = source stream, optionally blended with the webcam
       const base = () => PARAMS.facewebcam ? src(s0).blend(src(s1), () => PARAMS.webmix) : src(s0);
@@ -779,10 +830,11 @@ const MODES = {
         .pixelate(() => PARAMS.pixelate, () => PARAMS.pixelate)
         .modulate(noise(2.5), () => 1.5 * Math.sin(0.08 * time))
         .out(o1);
-      // face layer: distorted (duotone + gentle warp) but FINER than the background and
-      // not rotating, so the face still reads. Face glitch scales the distortion up.
+      // face layer: SAME melting warp as the background blobs (so the face melts/distorts
+      // too), keeping its colour. Face glitch adds extra warp on top.
       const faceLayer = base().color(1.04, 0, -1.1)
-        .modulate(noise(2, 0.3), () => PARAMS.faceglitch * 0.045)
+        .modulate(noise(2.5), () => 1.5 * Math.sin(0.08 * time))
+        .modulate(noise(2, 0.3), () => PARAMS.faceglitch * 0.06)
         .pixelate(() => 340 - PARAMS.faceglitch * 230, () => 340 - PARAMS.faceglitch * 230);
       await startFaceDetection();
       if (PARAMS.ocr) startOCR(() => s0.src).catch(e => say('OCR failed: ' + e.message, true));
@@ -854,15 +906,18 @@ const MODES = {
     }
   },
   'Focal points': {
-    knobs: ['blur', 'saturate', 'points', 'box', 'web', 'smooth', 'ink', 'osc', 'fps'],
-    hint: "Stream melts into color; labeled boxes track focal points with a dashed curvy web. Osc blends a Hydra pattern on top.",
+    knobs: ['blur', 'saturate', 'points', 'box', 'smooth', 'ink', 'osc', 'unblur', 'fps'],
+    hint: "Stream melts into color; labeled boxes track focal points. Unblur: faces occasionally swim into sharp focus then back into the blur.",
     async start() {
       await startStreamCapture();
       // osc pattern rendered by Hydra, blended over the melted stream (Osc slider = opacity)
       osc(5, -0.126, 0.514).rotate(0, 0.1).pixelate(40, 40).out(o0); render(o0);
       focalRunning = true; focalFrame = 0; tracked = [];
+      focalFaces = []; unblurActive = null; unblurNext = performance.now() + 2500;
+      say('Loading face model...');
+      try { focalFaceDet = await loadFaceDetector(); } catch (_) {}
       focalLoop();
-      onCleanup(() => { focalRunning = false; stopStream(bgEl); });
+      onCleanup(() => { focalRunning = false; try { focalFaceDet && focalFaceDet.close(); } catch (_) {} focalFaceDet = null; stopStream(bgEl); });
     }
   },
 };
