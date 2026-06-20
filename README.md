@@ -1,10 +1,18 @@
 # pixelate_me
 
 A single-file, browser-based live-visuals studio built on [Hydra](https://hydra.ojack.xyz)
-plus a few in-browser ML models. Capture a tab (a Kick/YouTube stream, a webcam),
+plus a few in-browser ML models. Capture a browser tab or window, use your webcam,
 or play a local video, and run it through one of several real-time effect modes.
+Nothing is uploaded; all processing happens locally in the browser.
+
+It also runs on the web at
+[artificialnouveau.com/smalltools/pixelate_me](https://www.artificialnouveau.com/smalltools/pixelate_me/).
 
 Everything is in `run.html`. No build step.
+
+Click the **&#9432; info** button (top-left, next to Hide) for a per-mode explainer:
+what the mode does, what the on-screen boxes / links / labels ("nodes") mean, and a
+one-line description of every slider. Each slider also shows the same text on hover.
 
 ## Run
 

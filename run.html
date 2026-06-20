@@ -2,7 +2,7 @@
 <html>
 <head>
 <meta charset="utf-8">
-<title>Kick studio - face reveal + focal points</title>
+<title>pixelate_me - live visuals studio</title>
 <link rel="icon" href="data:,">
 <style>
   html, body { margin: 0; height: 100%; overflow: hidden; background: #000; font-family: system-ui, sans-serif; }
@@ -43,6 +43,26 @@
   .knob label { opacity: 0.8; }
   .knob input[type=range] { width: 100%; }
   .knob .val { opacity: 0.7; text-align: right; font-variant-numeric: tabular-nums; }
+  #info { font-size: 15px; line-height: 1; padding: 6px 9px; }
+  #infobox {
+    position: fixed; top: 12px; right: 12px; z-index: 12;
+    width: 340px; max-width: calc(100vw - 24px); max-height: calc(100vh - 24px);
+    overflow-y: auto; background: rgba(0,0,0,0.82); color: #ddd;
+    padding: 12px 16px 16px; border-radius: 8px; font-size: 13px; line-height: 1.45;
+    backdrop-filter: blur(8px); border: 1px solid #333;
+  }
+  #infobox.hidden { display: none; }
+  #infohead { display: flex; justify-content: space-between; align-items: center;
+    position: sticky; top: -12px; background: rgba(0,0,0,0.92); margin: -12px -16px 8px; padding: 12px 16px 8px; }
+  #infotitle { font-weight: 700; font-size: 15px; color: #ffe24d; }
+  #infoclose { background: none; border: none; color: #aaa; font-size: 22px; cursor: pointer; line-height: 1; padding: 0 2px; }
+  #infoclose:hover { color: #fff; }
+  #infobody h3 { margin: 14px 0 4px; font-size: 13px; color: #79c0ff; }
+  #infobody p { margin: 0 0 8px; }
+  #infobody ul { margin: 0 0 8px; padding-left: 16px; }
+  #infobody li { margin: 0 0 5px; }
+  #infobody b { color: #eee; }
+  #infobody .k { color: #ffe24d; font-weight: 600; }
 </style>
 </head>
 <body>
@@ -55,6 +75,11 @@
 <canvas id="ov"></canvas>                                 <!-- shared overlay: boxes/lines/labels -->
 <button id="toggle" title="Show controls">&#8801;</button>
 
+<div id="infobox" class="hidden">
+  <div id="infohead"><span id="infotitle">pixelate_me</span><button id="infoclose" title="Close">&times;</button></div>
+  <div id="infobody"></div>
+</div>
+
 <div id="panel">
   <div id="bar">
     <select id="mode"></select>
@@ -62,6 +87,7 @@
     <select id="camera" title="which camera"></select>
     <button id="run">Run</button>
     <button id="hide">Hide</button>
+    <button id="info" title="What is this? Per-mode help">&#9432;</button>
   </div>
   <div id="randrow"><input type="checkbox" id="random"><label for="random">Random changes</label></div>
   <div id="textrow"><input id="pctext" type="text" value="" placeholder="custom text, or leave empty to label body parts"></div>
@@ -252,7 +278,7 @@ function drawOCR(W, H) {
 }
 
 async function startFaceDetection() {
-  say('Waiting for tab capture (pick the Kick tab)...');
+  say('Waiting for tab capture (pick the tab/window)...');
   const video = await waitForCaptureVideo(s0);
   say('Loading face model...');
   const vision = await import('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.12');
@@ -924,6 +950,94 @@ const MODES = {
 };
 
 // ---------------------------------------------------------------------------
+// Info / help: page intro, per-mode "what you see" (nodes), per-setting text.
+// ---------------------------------------------------------------------------
+const PAGE_INTRO = "A browser-based live-visuals studio built on Hydra plus a few in-browser ML models (face detection, body segmentation, OCR). Capture a browser tab or window, use your webcam, or play a local video, and run it through one of the effect modes below. Nothing is uploaded; all processing happens locally in your browser.";
+
+// what each mode does + what the on-screen overlay graphics ("nodes") represent
+const MODE_INFO = {
+  'Melting': {
+    what: "The captured stream is pushed through a heavy Hydra glitch. Detected faces 'melt' as soft, distorted ellipses that keep their colour while everything else pixelates and warps.",
+    nodes: "Each soft ellipse marks a face the detector found. Thin white curved links join faces into a loose web. With Text copy on, any on-screen words float around as drifting yellow copies.",
+  },
+  'Focal points': {
+    what: "The stream melts into soft blocks of colour; the brightest, most colourful regions are picked out as the image's 'focal points'.",
+    nodes: "Each labelled box tracks one focal point, and its label shows that point's x/y position in the source image. Dashed curvy lines (the 'web') link nearby boxes. The boxes keep drifting slightly even on a still image.",
+  },
+  'PixelCrash glitch': {
+    what: "People are segmented out of the captured video and redrawn as ASCII characters; the background stays clean video.",
+    nodes: "Each character cell is tinted by the colour underneath it. In label mode the glyphs spell body-part words (face, hair, skin, cloth...). Type your own text in the box to spell that across everyone instead.",
+  },
+  'Karaoke (local)': {
+    what: "Plays a downloaded video file with auto-synced lyrics, volume-reactive lyric size, and the singer's face multiplied across the screen.",
+    nodes: "Each drifting crop is a copy of the detected face (or your webcam face); louder singing makes the lyrics bigger. Note: the local library needs video files sitting next to the app, so it is empty on the public website.",
+  },
+  'Karaoke (capture)': {
+    what: "Tab-capture version of karaoke: share a music-video tab (tick 'Share tab audio'), fetch lyrics, then Start at the song's beginning. Sync is manual.",
+    nodes: "Same as local karaoke: multiplied face copies plus volume-reactive lyrics, driven by the shared tab's audio.",
+  },
+};
+
+// one short line per slider, keyed by PARAMS key. Shown in the info panel and as hover tooltips.
+const DESC = {
+  facebox: "Size of the melted ellipse drawn over each detected face.",
+  reveal: "How soft and blurred the face ellipse edge is.",
+  hold: "How long old face blobs linger before fading (trails).",
+  faceglitch: "Extra warp and distortion applied to the face layer.",
+  pixelate: "Block size of the background pixelation.",
+  brightness: "Overall image brightness.",
+  contrast: "Overall image contrast.",
+  facewebcam: "1 = blend your webcam into the source stream.",
+  webmix: "How much of the webcam is mixed in (when Webcam = 1).",
+  ocr: "1 = read on-screen text and float drifting copies of it.",
+  facebright: "Brightens the detector's view only, to catch faces in dim rooms.",
+  tiles: "1 = scan the frame in four tiles to find smaller / farther faces (slower).",
+  blur: "How much the stream melts into soft colour.",
+  saturate: "Colour intensity of the melted field.",
+  points: "How many focal points (boxes) to track.",
+  box: "Size of each tracking box.",
+  web: "How many dashed links each box draws to its neighbours (0 = none).",
+  smooth: "Idle wander: how much the boxes float on a still image.",
+  ink: "Opacity of the boxes, labels and web lines.",
+  osc: "Opacity of a Hydra oscillator pattern blended on top.",
+  bgdrift: "Slow looping drift of the whole melted blob field.",
+  pcsize: "Size of each ASCII character cell.",
+  pcbright: "Brightness of the ASCII glyphs.",
+  pcback: "Opacity of the black box behind each character (hides the person).",
+  pcvary: "How many different glyph styles are mixed across regions.",
+  pccalm: "Smooths flicker in both brightness and the silhouette edge.",
+  pcperson: "Threshold for what counts as a person vs clean background.",
+  pcwebcam: "1 = overlay your own segmented body on top of the screen video.",
+  kacopies: "Number of multiplied face copies scattered on screen.",
+  kaspread: "How far the copies spread from the centre (when Drift = 0).",
+  kasize: "Base font size of the lyrics.",
+  kavol: "How much the singing volume grows the lyrics.",
+  kadrift: "DVD-style bouncing drift of each copy (0 = static scatter).",
+  kawebcam: "1 = multiply YOUR webcam face instead of the video's.",
+  fps: "Frame-rate cap. Lower = a cleaner, slower frame-stepped look.",
+};
+
+const infobox = document.getElementById('infobox'), infobody = document.getElementById('infobody');
+function buildInfo() {
+  const m = modeSel.value, mi = MODE_INFO[m] || {};
+  let html = '<p>' + PAGE_INTRO + '</p>';
+  html += '<h3>' + m + '</h3>';
+  if (mi.what) html += '<p>' + mi.what + '</p>';
+  if (mi.nodes) html += '<p><b>What you see:</b> ' + mi.nodes + '</p>';
+  html += '<h3>Settings</h3><ul>';
+  for (const key of MODES[m].knobs) {
+    const k = KNOB_BY_KEY[key];
+    html += '<li><span class="k">' + k.label + '</span> &mdash; ' + (DESC[key] || '') + '</li>';
+  }
+  html += '</ul>';
+  html += '<p style="opacity:.7"><b>Source</b> selects Screen tab vs Webcam. <b>Run</b> starts the mode; <b>Hide</b> clears the panel (Esc toggles it). <b>Random changes</b> auto-nudges the sliders for a generative feel.</p>';
+  infobody.innerHTML = html;
+}
+function setInfo(v) { if (v) buildInfo(); infobox.classList.toggle('hidden', !v); }
+document.getElementById('info').addEventListener('click', () => setInfo(infobox.classList.contains('hidden')));
+document.getElementById('infoclose').addEventListener('click', () => setInfo(false));
+
+// ---------------------------------------------------------------------------
 // Sliders (rebuilt per mode) + random changer.
 // ---------------------------------------------------------------------------
 const knobsEl = document.getElementById('knobs');
@@ -933,6 +1047,7 @@ function renderKnobs(keys) {
   for (const k of KNOBS) {
     if (!keys.includes(k.key)) continue;
     const row = document.createElement('div'); row.className = 'knob';
+    if (DESC[k.key]) row.title = DESC[k.key];
     const lab = document.createElement('label'); lab.textContent = k.label;
     const inp = document.createElement('input'); inp.type = 'range'; inp.min = k.min; inp.max = k.max; inp.step = k.step; inp.value = PARAMS[k.key];
     const val = document.createElement('span'); val.className = 'val'; val.textContent = k.fmt(PARAMS[k.key]);
@@ -997,6 +1112,7 @@ function syncControls() {
   document.getElementById('karow').style.display = modeSel.value.startsWith('Karaoke') ? 'flex' : 'none';
   if (modeSel.value.startsWith('Karaoke')) loadLibrary();   // refresh downloaded-song list
   if (!hint.classList.contains('err')) say(MODES[modeSel.value].hint);
+  if (!infobox.classList.contains('hidden')) buildInfo();   // keep open help in sync with the mode
 }
 
 async function runCurrent() {
