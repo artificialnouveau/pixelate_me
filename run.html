@@ -135,7 +135,10 @@ async function refreshCameras() {
     if (cur && videoInputs.some(d => d.deviceId === cur)) cameraSel.value = cur;
   } catch (_) {}
 }
-function camConstraint() { const id = cameraSel.value; return id ? { deviceId: { exact: id } } : true; }   // exact = force the chosen camera
+// prefer the chosen camera, but fall back gracefully. `exact` would throw
+// OverconstrainedError (no prompt, black screen) whenever the saved deviceId goes
+// stale - after a browser restart, a permission reset, or a different profile.
+function camConstraint() { const id = cameraSel.value; return id ? { deviceId: { ideal: id } } : true; }
 function selectedCameraIndex() { const i = videoInputs.findIndex(d => d.deviceId === cameraSel.value); return i < 0 ? 0 : i; }   // for Hydra initCam
 refreshCameras();
 if (navigator.mediaDevices) navigator.mediaDevices.addEventListener('devicechange', refreshCameras);
@@ -616,7 +619,16 @@ const camEl = document.getElementById('cam');
 let camStarted = false, camFaces = [];
 async function ensureWebcam() {
   if (camStarted) return;
-  const stream = await navigator.mediaDevices.getUserMedia({ video: camConstraint(), audio: false });
+  let stream;
+  try { stream = await navigator.mediaDevices.getUserMedia({ video: camConstraint(), audio: false }); }
+  catch (e) {
+    // once a browser remembers "Block" for this site it stops prompting and just
+    // rejects, so spell out how to re-enable it instead of failing silently.
+    const blocked = e && (e.name === 'NotAllowedError' || e.name === 'SecurityError');
+    throw new Error(blocked
+      ? 'camera permission is blocked. Click the camera icon in the address bar (or the lock / site-settings menu), set Camera to Allow, then reload and Run again.'
+      : 'camera unavailable (' + ((e && e.name) || e) + '). Check it is plugged in and not in use by another app, then try again.');
+  }
   camEl.srcObject = stream; await camEl.play(); camStarted = true; refreshCameras();
 }
 function stopWebcam() { try { if (camEl.srcObject) { camEl.srcObject.getTracks().forEach(t => t.stop()); camEl.srcObject = null; } } catch (_) {} camStarted = false; camFaces = []; }
@@ -860,7 +872,11 @@ const MODES = {
     hint: "Heavy glitch; faces melt as distorted ellipses. Face melt controls how much the face warps (lower = stays legible). Det light brightens the detector's view (dim rooms); Tiles=1 finds smaller/farther faces. Text copy=1 floats detected text. Color cycle slowly rotates the complementary palette.",
     async start() {
       meltColorPhase = 0; meltLastPhaseTs = 0;   // restart the hue rotation from the base palette
-      if (sourceIsWebcam()) s0.initCam(selectedCameraIndex()); else await s0.initScreen();   // webcam or screen as the source
+      // webcam or screen as the source. For webcam we acquire the stream ourselves
+      // (ensureWebcam) so the permission prompt fires and any block surfaces as an
+      // on-screen message - Hydra's initCam swallows the error and just goes black.
+      if (sourceIsWebcam()) { await ensureWebcam(); s0.init({ src: camEl, dynamic: true }); }
+      else await s0.initScreen();
       if (PARAMS.facewebcam) { try { s1.initCam(); } catch (_) {} }
       // base = source stream, optionally blended with the webcam
       const base = () => PARAMS.facewebcam ? src(s0).blend(src(s1), () => PARAMS.webmix) : src(s0);
@@ -883,7 +899,7 @@ const MODES = {
       // face*mask + background*(1-mask) sums to full brightness at the feathered edge.
       grade(faceLayer.mask(src(s3)).add(src(o1).mask(src(s3).invert()))).out(o0);
       render(o0);
-      onCleanup(() => { stopStream(s0.src); stopOCR(); });
+      onCleanup(() => { stopStream(s0.src); stopWebcam(); stopOCR(); });
     }
   },
   'PixelCrash glitch': {
