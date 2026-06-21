@@ -145,7 +145,7 @@ if (navigator.mediaDevices) navigator.mediaDevices.addEventListener('devicechang
 // ---------------------------------------------------------------------------
 const PARAMS = {
   // face reveal
-  facebox: 1.3, reveal: 0.30, hold: 0.7, faceglitch: 0.3, pixelate: 40, brightness: 0, contrast: 1, facewebcam: 0, webmix: 0.5, ocr: 0, facebright: 1.6, tiles: 0, colorcycle: 0,
+  facebox: 1.3, reveal: 0.30, hold: 0.7, faceglitch: 0.3, facemelt: 1.5, pixelate: 40, brightness: 0, contrast: 1, facewebcam: 0, webmix: 0.5, ocr: 0, facebright: 1.6, tiles: 0, colorcycle: 0,
   // focal points
   blur: 26, saturate: 2.0, points: 16, box: 1.0, web: 2, smooth: 0.08, ink: 1, osc: 0.5, bgdrift: 0.3,
   // pixelcrash (ASCII over segmented people)
@@ -160,6 +160,7 @@ const KNOBS = [
   { key: 'reveal',     label: 'Reveal',     min: 0.05, max: 0.6,  step: 0.01, fmt: v => v.toFixed(2) },
   { key: 'hold',       label: 'Hold',       min: 0,    max: 1,    step: 0.01, fmt: v => v.toFixed(2) },
   { key: 'faceglitch', label: 'Face glitch',min: 0,    max: 1,    step: 0.01, fmt: v => v.toFixed(2) },
+  { key: 'facemelt',   label: 'Face melt',  min: 0,    max: 2,    step: 0.05, fmt: v => v.toFixed(2) },
   { key: 'pixelate',   label: 'Pixelate',   min: 4,    max: 160,  step: 2,    fmt: v => v.toFixed(0) },
   { key: 'brightness', label: 'Brightness', min: -0.5, max: 0.5,  step: 0.01, fmt: v => v.toFixed(2) },
   { key: 'contrast',   label: 'Contrast',   min: 0.4,  max: 2.5,  step: 0.05, fmt: v => v.toFixed(2) },
@@ -855,8 +856,8 @@ function kaLoop() {
 // ---------------------------------------------------------------------------
 const MODES = {
   'Melting': {
-    knobs: ['facebox', 'reveal', 'hold', 'faceglitch', 'pixelate', 'facebright', 'tiles', 'ocr', 'brightness', 'contrast', 'colorcycle', 'fps'],
-    hint: "Heavy glitch; faces melt as distorted ellipses. Det light brightens the detector's view (dim rooms); Tiles=1 finds smaller/farther faces (a bit heavier). Text copy=1 floats detected text. Color cycle slowly rotates the complementary palette.",
+    knobs: ['facebox', 'reveal', 'hold', 'faceglitch', 'facemelt', 'pixelate', 'facebright', 'tiles', 'ocr', 'brightness', 'contrast', 'colorcycle', 'fps'],
+    hint: "Heavy glitch; faces melt as distorted ellipses. Face melt controls how much the face warps (lower = stays legible). Det light brightens the detector's view (dim rooms); Tiles=1 finds smaller/farther faces. Text copy=1 floats detected text. Color cycle slowly rotates the complementary palette.",
     async start() {
       meltColorPhase = 0; meltLastPhaseTs = 0;   // restart the hue rotation from the base palette
       if (sourceIsWebcam()) s0.initCam(selectedCameraIndex()); else await s0.initScreen();   // webcam or screen as the source
@@ -869,10 +870,11 @@ const MODES = {
         .pixelate(() => PARAMS.pixelate, () => PARAMS.pixelate)
         .modulate(noise(2.5), () => 1.5 * Math.sin(0.08 * time))
         .out(o1);
-      // face layer: SAME melting warp as the background blobs (so the face melts/distorts
-      // too), keeping its colour. Face glitch adds extra warp on top.
+      // face layer: same melting warp as the background blobs, but scaled by Face melt
+      // so you can keep the face legible while the background stays gooey (lower Face melt
+      // = the face is displaced less and stops smearing out of its mask).
       const faceLayer = base().color(1.04, 0, -1.1).hue(() => meltColorPhase)
-        .modulate(noise(2.5), () => 1.5 * Math.sin(0.08 * time))
+        .modulate(noise(2.5), () => PARAMS.facemelt * Math.sin(0.08 * time))
         .modulate(noise(2, 0.3), () => PARAMS.faceglitch * 0.06)
         .pixelate(() => 340 - PARAMS.faceglitch * 230, () => 340 - PARAMS.faceglitch * 230);
       await startFaceDetection();
@@ -993,6 +995,7 @@ const DESC = {
   reveal: "How soft and blurred the face ellipse edge is.",
   hold: "How long old face blobs linger before fading (trails).",
   faceglitch: "Extra warp and distortion applied to the face layer.",
+  facemelt: "How much the face itself melts/warps. Lower keeps the face from smearing out of its mask when the background melt is strong.",
   pixelate: "Block size of the background pixelation.",
   brightness: "Overall image brightness.",
   contrast: "Overall image contrast.",
